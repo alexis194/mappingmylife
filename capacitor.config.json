@@ -1,0 +1,8 @@
+﻿{
+  "appId": "com.mappingmylife.app",
+  "appName": "Mapping My Life",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
