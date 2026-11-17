@@ -9,8 +9,10 @@
       node: 22
       xcode: latest
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.mappingmylife.app
+        provisioning_profiles:
+          - mappingmylife_profile
+        certificates:
+          - mappingmylife_dist
     scripts:
       - name: Install dependencies
         script: npm install
