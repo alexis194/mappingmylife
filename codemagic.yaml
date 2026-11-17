@@ -8,10 +8,12 @@
     environment:
       node: 22
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.mappingmylife.app
     scripts:
+      - name: Initialize keychain and create signing files
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "com.mappingmylife.app" --type IOS_APP_STORE --create
+          keychain add-certificates
       - name: Install dependencies
         script: npm install
       - name: Build web app
@@ -25,9 +27,9 @@
           sed -i '' "s/TARGETED_DEVICE_FAMILY = \"1,2\";/TARGETED_DEVICE_FAMILY = 1;/g" "$PBX"
           PLIST=ios/App/App/Info.plist
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" || true
-          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string Used to take your selfie over the live map." "$PLIST" || true
-          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string Used to center the map on your current location." "$PLIST" || true
-          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string Used to save your travel map postcards to your photos." "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string Used to take your travel selfie and location photo." "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string Used to center your map and pin your current stop." "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string Used to save your travel postcard to Photos." "$PLIST" || true
       - name: Set up code signing
         script: xcode-project use-profiles
       - name: Build IPA
