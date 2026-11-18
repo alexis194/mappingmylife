@@ -242,6 +242,593 @@
   };
 })();
 </script>
+<!-- MML Map-Background Camera Postcard Feature -->
+<style>
+  #mml-snap-fab {
+    position: fixed; bottom: 24px; right: 20px; z-index: 9998;
+    background: linear-gradient(135deg, #0f2043, #146e82); color: #fff;
+    border: none; border-radius: 999px; padding: 14px 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px; font-weight: 700; box-shadow: 0 10px 25px rgba(15,32,67,0.35);
+    cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  #mml-cam-modal {
+    position: fixed; inset: 0; z-index: 99999; background: #071124; color: #fff;
+    display: none; flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .mml-cam-top {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; background: rgba(15,32,67,0.9);
+  }
+  .mml-cam-stage {
+    position: relative; flex: 1; display: flex; align-items: center;
+    justify-content: center; overflow: hidden; padding: 12px;
+  }
+  #mml-video-wrap {
+    position: relative; width: 100%; max-width: 420px; aspect-ratio: 3/4;
+    border-radius: 20px; overflow: hidden; background: #111;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  #mml-map-bg-preview {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.92;
+  }
+  #mml-live-video {
+    position: absolute; top: 16px; left: 16px; width: 38%; aspect-ratio: 3/4;
+    object-fit: cover; border-radius: 14px; border: 3px solid #fff;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5); z-index: 2; background: #000;
+  }
+  #mml-result-canvas {
+    max-width: 100%; max-height: 72vh; border-radius: 18px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6); display: none;
+  }
+  .mml-cam-controls {
+    padding: 16px 20px 28px; background: rgba(15,32,67,0.95);
+    display: flex; flex-direction: column; gap: 12px; align-items: center;
+  }
+  .mml-pill-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .mml-pill {
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mml-pill.active { background: #ff5e3a; border-color: #ff5e3a; }
+  .mml-shutter {
+    width: 68px; height: 68px; border-radius: 50%; background: #fff;
+    border: 5px solid #ff5e3a; cursor: pointer;
+  }
+  .mml-btn-primary {
+    background: #ff5e3a; color: #fff; border: none; border-radius: 12px;
+    padding: 12px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+</style>
+
+<button id="mml-snap-fab" type="button">📸 Snap with Map</button>
+<input id="mml-fallback-file" type="file" accept="image/*" capture="user" style="display:none;" />
+
+<div id="mml-cam-modal">
+  <div class="mml-cam-top">
+    <button id="mml-cam-close" class="mml-pill" type="button">✕ Close</button>
+    <strong style="font-size:15px;">Map Postcard Camera</strong>
+    <button id="mml-cam-flip" class="mml-pill" type="button">🔄 Flip</button>
+  </div>
+
+  <div class="mml-cam-stage">
+    <div id="mml-video-wrap">
+      <img id="mml-map-bg-preview" alt="Map background" />
+      <video id="mml-live-video" autoplay playsinline muted></video>
+      <div style="position:absolute;bottom:14px;left:14px;right:14px;background:rgba(10,22,45,0.78);padding:8px 12px;border-radius:10px;font-size:12px;">
+        📍 <span id="mml-loc-label">Capturing current map view...</span>
+      </div>
+    </div>
+    <canvas id="mml-result-canvas" width="1080" height="1440"></canvas>
+  </div>
+
+  <div class="mml-cam-controls">
+    <div id="mml-layout-bar" class="mml-pill-row" style="display:none;">
+      <button class="mml-pill active" data-layout="pip" type="button">Corner PiP</button>
+      <button class="mml-pill" data-layout="split" type="button">50/50 Split</button>
+      <button class="mml-pill" data-layout="polaroid" type="button">Polaroid</button>
+    </div>
+
+    <div id="mml-capture-bar" style="display:flex;align-items:center;gap:18px;">
+      <button id="mml-upload-alt" class="mml-pill" type="button">🖼️ Native Camera / Photo</button>
+      <button id="mml-shutter-btn" class="mml-shutter" type="button" title="Take Photo"></button>
+    </div>
+
+    <div id="mml-share-bar" class="mml-pill-row" style="display:none;">
+      <button id="mml-retake-btn" class="mml-pill" type="button">↺ Retake</button>
+      <button id="mml-save-btn" class="mml-btn-primary" type="button">💾 Save / Share Postcard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var fab = document.getElementById('mml-snap-fab');
+  var modal = document.getElementById('mml-cam-modal');
+  var video = document.getElementById('mml-live-video');
+  var videoWrap = document.getElementById('mml-video-wrap');
+  var mapBgImg = document.getElementById('mml-map-bg-preview');
+  var canvas = document.getElementById('mml-result-canvas');
+  var ctx = canvas.getContext('2d');
+  var locLabel = document.getElementById('mml-loc-label');
+  var fallbackInput = document.getElementById('mml-fallback-file');
+
+  var stream = null;
+  var facingMode = 'user';
+  var capturedPhoto = null;
+  var mapSnapshot = null;
+  var currentLayout = 'pip';
+  var placeText = 'Exploring the World';
+
+  function findLeafletMap() {
+    for (var k in window) {
+      try {
+        if (window[k] && typeof window[k].getCenter === 'function' && typeof window[k].getZoom === 'function') {
+          return window[k];
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function buildStaticMapSnapshot() {
+    return new Promise(function (resolve) {
+      var m = findLeafletMap();
+      var lat = -1.9441, lng = 30.0619, zoom = 13;
+      if (m) {
+        var c = m.getCenter();
+        lat = c.lat; lng = c.lng; zoom = Math.min(Math.max(Math.round(m.getZoom()), 3), 17);
+      }
+      placeText = lat.toFixed(4) + '°, ' + lng.toFixed(4) + '°';
+      locLabel.textContent = placeText;
+
+      fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' + lat + '&lon=' + lng)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.address) {
+            var city = d.address.city || d.address.town || d.address.village || d.address.county || '';
+            var country = d.address.country || '';
+            if (city || country) {
+              placeText = [city, country].filter(Boolean).join(', ');
+              locLabel.textContent = placeText;
+            }
+          }
+        }).catch(function () {});
+
+      // Render 3x3 OSM tile grid onto offscreen canvas for crisp CORS-safe map capture
+      var off = document.createElement('canvas');
+      off.width = 768; off.height = 768;
+      var octx = off.getContext('2d');
+      octx.fillStyle = '#13294b';
+      octx.fillRect(0, 0, 768, 768);
+
+      var n = Math.pow(2, zoom);
+      var xtile = Math.floor((lng + 180) / 360 * n);
+      var latRad = lat * Math.PI / 180;
+      var ytile = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+
+      var loaded = 0;
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          (function (gx, gy) {
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            var tx = ((xtile + gx) % n + n) % n;
+            var ty = Math.min(Math.max(ytile + gy, 0), n - 1);
+            img.onload = function () {
+              octx.drawImage(img, (gx + 1) * 256, (gy + 1) * 256, 256, 256);
+              if (++loaded === 9) drawPinAndFinish();
+            };
+            img.onerror = function () {
+              if (++loaded === 9) drawPinAndFinish();
+            };
+            img.src = 'https://tile.openstreetmap.org/' + zoom + '/' + tx + '/' + ty + '.png';
+          })(dx, dy);
+        }
+      }
+
+      function drawPinAndFinish() {$featureCode = @'
+<!-- MML Map-Background Camera Postcard Feature -->
+<style>
+  #mml-snap-fab {
+    position: fixed; bottom: 24px; right: 20px; z-index: 9998;
+    background: linear-gradient(135deg, #0f2043, #146e82); color: #fff;
+    border: none; border-radius: 999px; padding: 14px 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px; font-weight: 700; box-shadow: 0 10px 25px rgba(15,32,67,0.35);
+    cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  #mml-cam-modal {
+    position: fixed; inset: 0; z-index: 99999; background: #071124; color: #fff;
+    display: none; flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .mml-cam-top {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; background: rgba(15,32,67,0.9);
+  }
+  .mml-cam-stage {
+    position: relative; flex: 1; display: flex; align-items: center;
+    justify-content: center; overflow: hidden; padding: 12px;
+  }
+  #mml-video-wrap {
+    position: relative; width: 100%; max-width: 420px; aspect-ratio: 3/4;
+    border-radius: 20px; overflow: hidden; background: #111;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  #mml-map-bg-preview {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.92;
+  }
+  #mml-live-video {
+    position: absolute; top: 16px; left: 16px; width: 38%; aspect-ratio: 3/4;
+    object-fit: cover; border-radius: 14px; border: 3px solid #fff;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5); z-index: 2; background: #000;
+  }
+  #mml-result-canvas {
+    max-width: 100%; max-height: 72vh; border-radius: 18px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6); display: none;
+  }
+  .mml-cam-controls {
+    padding: 16px 20px 28px; background: rgba(15,32,67,0.95);
+    display: flex; flex-direction: column; gap: 12px; align-items: center;
+  }
+  .mml-pill-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .mml-pill {
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mml-pill.active { background: #ff5e3a; border-color: #ff5e3a; }
+  .mml-shutter {
+    width: 68px; height: 68px; border-radius: 50%; background: #fff;
+    border: 5px solid #ff5e3a; cursor: pointer;
+  }
+  .mml-btn-primary {
+    background: #ff5e3a; color: #fff; border: none; border-radius: 12px;
+    padding: 12px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+</style>
+
+<button id="mml-snap-fab" type="button">📸 Snap with Map</button>
+<input id="mml-fallback-file" type="file" accept="image/*" capture="user" style="display:none;" />
+
+<div id="mml-cam-modal">
+  <div class="mml-cam-top">
+    <button id="mml-cam-close" class="mml-pill" type="button">✕ Close</button>
+    <strong style="font-size:15px;">Map Postcard Camera</strong>
+    <button id="mml-cam-flip" class="mml-pill" type="button">🔄 Flip</button>
+  </div>
+
+  <div class="mml-cam-stage">
+    <div id="mml-video-wrap">
+      <img id="mml-map-bg-preview" alt="Map background" />
+      <video id="mml-live-video" autoplay playsinline muted></video>
+      <div style="position:absolute;bottom:14px;left:14px;right:14px;background:rgba(10,22,45,0.78);padding:8px 12px;border-radius:10px;font-size:12px;">
+        📍 <span id="mml-loc-label">Capturing current map view...</span>
+      </div>
+    </div>
+    <canvas id="mml-result-canvas" width="1080" height="1440"></canvas>
+  </div>
+
+  <div class="mml-cam-controls">
+    <div id="mml-layout-bar" class="mml-pill-row" style="display:none;">
+      <button class="mml-pill active" data-layout="pip" type="button">Corner PiP</button>
+      <button class="mml-pill" data-layout="split" type="button">50/50 Split</button>
+      <button class="mml-pill" data-layout="polaroid" type="button">Polaroid</button>
+    </div>
+
+    <div id="mml-capture-bar" style="display:flex;align-items:center;gap:18px;">
+      <button id="mml-upload-alt" class="mml-pill" type="button">🖼️ Native Camera / Photo</button>
+      <button id="mml-shutter-btn" class="mml-shutter" type="button" title="Take Photo"></button>
+    </div>
+
+    <div id="mml-share-bar" class="mml-pill-row" style="display:none;">
+      <button id="mml-retake-btn" class="mml-pill" type="button">↺ Retake</button>
+      <button id="mml-save-btn" class="mml-btn-primary" type="button">💾 Save / Share Postcard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var fab = document.getElementById('mml-snap-fab');
+  var modal = document.getElementById('mml-cam-modal');
+  var video = document.getElementById('mml-live-video');
+  var videoWrap = document.getElementById('mml-video-wrap');
+  var mapBgImg = document.getElementById('mml-map-bg-preview');
+  var canvas = document.getElementById('mml-result-canvas');
+  var ctx = canvas.getContext('2d');
+  var locLabel = document.getElementById('mml-loc-label');
+  var fallbackInput = document.getElementById('mml-fallback-file');
+
+  var stream = null;
+  var facingMode = 'user';
+  var capturedPhoto = null;
+  var mapSnapshot = null;
+  var currentLayout = 'pip';
+  var placeText = 'Exploring the World';
+
+  function findLeafletMap() {
+    for (var k in window) {
+      try {
+        if (window[k] && typeof window[k].getCenter === 'function' && typeof window[k].getZoom === 'function') {
+          return window[k];
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function buildStaticMapSnapshot() {
+    return new Promise(function (resolve) {
+      var m = findLeafletMap();
+      var lat = -1.9441, lng = 30.0619, zoom = 13;
+      if (m) {
+        var c = m.getCenter();
+        lat = c.lat; lng = c.lng; zoom = Math.min(Math.max(Math.round(m.getZoom()), 3), 17);
+      }
+      placeText = lat.toFixed(4) + '°, ' + lng.toFixed(4) + '°';
+      locLabel.textContent = placeText;
+
+      fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' + lat + '&lon=' + lng)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.address) {
+            var city = d.address.city || d.address.town || d.address.village || d.address.county || '';
+            var country = d.address.country || '';
+            if (city || country) {
+              placeText = [city, country].filter(Boolean).join(', ');
+              locLabel.textContent = placeText;
+            }
+          }
+        }).catch(function () {});
+
+      // Render 3x3 OSM tile grid onto offscreen canvas for crisp CORS-safe map capture
+      var off = document.createElement('canvas');
+      off.width = 768; off.height = 768;
+      var octx = off.getContext('2d');
+      octx.fillStyle = '#13294b';
+      octx.fillRect(0, 0, 768, 768);
+
+      var n = Math.pow(2, zoom);
+      var xtile = Math.floor((lng + 180) / 360 * n);
+      var latRad = lat * Math.PI / 180;
+      var ytile = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+
+      var loaded = 0;
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          (function (gx, gy) {
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            var tx = ((xtile + gx) % n + n) % n;
+            var ty = Math.min(Math.max(ytile + gy, 0), n - 1);
+            img.onload = function () {
+              octx.drawImage(img, (gx + 1) * 256, (gy + 1) * 256, 256, 256);
+              if (++loaded === 9) drawPinAndFinish();
+            };
+            img.onerror = function () {
+              if (++loaded === 9) drawPinAndFinish();
+            };
+            img.src = 'https://tile.openstreetmap.org/' + zoom + '/' + tx + '/' + ty + '.png';
+          })(dx, dy);
+        }
+      }
+
+      function drawPinAndFinish() {
+        // Draw center travel pin
+        octx.fillStyle = 'rgba(0,0,0,0.3)';
+        octx.beginPath(); octx.ellipse(384, 412, 22, 8, 0, 0, Math.PI * 2); octx.fill();
+        octx.fillStyle = '#ff5e3a';
+        octx.beginPath(); octx.arc(384, 368, 24, Math.PI * 0.8, Math.PI * 2.2);
+        octx.lineTo(384, 412); octx.closePath(); octx.fill();
+        octx.fillStyle = '#ffffff';
+        octx.beginPath(); octx.arc(384, 368, 9, 0, Math.PI * 2); octx.fill();
+
+        var outImg = new Image();
+        outImg.onload = function () { resolve(outImg); };
+        outImg.src = off.toDataURL('image/png');
+      }
+    });
+  }
+
+  async function startCamera() {
+    if (stream) {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingMode },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.style.display = 'block';
+    } catch (err) {
+      video.style.display = 'none';
+    }
+  }
+
+  function drawCover(context, img, x, y, w, h, mirror) {
+    var ir = img.width / img.height;
+    var r = w / h;
+    var sx = 0, sy = 0, sw = img.width, sh = img.height;
+    if (ir > r) { sw = img.height * r; sx = (img.width - sw) / 2; }
+    else { sh = img.width / r; sy = (img.height - sh) / 2; }
+    context.save();
+    if (mirror) {
+      context.translate(x + w, y);
+      context.scale(-1, 1);
+      context.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    } else {
+      context.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    }
+    context.restore();
+  }
+
+  function roundRect(context, x, y, w, h, r) {
+    context.beginPath();
+    context.moveTo(x + r, y);
+    context.arcTo(x + w, y, x + w, y + h, r);
+    context.arcTo(x + w, y + h, x, y + h, r);
+    context.arcTo(x, y + h, x, y, r);
+    context.arcTo(x, y, x + w, y, r);
+    context.closePath();
+  }
+
+  function renderPostcard() {
+    var W = canvas.width, H = canvas.height;
+    ctx.fillStyle = '#0f2043';
+    ctx.fillRect(0, 0, W, H);
+
+    if (currentLayout === 'split') {
+      if (mapSnapshot) drawCover(ctx, mapSnapshot, 0, 0, W, H / 2, false);
+      if (capturedPhoto) drawCover(ctx, capturedPhoto, 0, H / 2, W, H / 2, false);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, H / 2 - 4, W, 8);
+    } else if (currentLayout === 'polaroid') {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, W, H);
+      if (capturedPhoto) drawCover(ctx, capturedPhoto, 64, 64, W - 128, H - 340, false);
+      if (mapSnapshot) {
+        ctx.save();
+        roundRect(ctx, W - 340, H - 540, 240, 240, 24);
+        ctx.clip();
+        drawCover(ctx, mapSnapshot, W - 340, H - 540, 240, 240, false);
+        ctx.restore();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 8;
+        roundRect(ctx, W - 340, H - 540, 240, 240, 24); ctx.stroke();
+      }
+    } else {
+      // Corner PiP (BeReal-style)
+      if (mapSnapshot) drawCover(ctx, mapSnapshot, 0, 0, W, H, false);
+      if (capturedPhoto) {
+        ctx.save();
+        roundRect(ctx, 56, 56, 360, 480, 32);
+        ctx.clip();
+        drawCover(ctx, capturedPhoto, 56, 56, 360, 480, false);
+        ctx.restore();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 10;
+        roundRect(ctx, 56, 56, 360, 480, 32); ctx.stroke();
+      }
+    }
+
+    // Bottom Stamp Banner
+    var darkText = currentLayout === 'polaroid';
+    if (!darkText) {
+      var grad = ctx.createLinearGradient(0, H - 260, 0, H);
+      grad.addColorStop(0, 'rgba(10,22,45,0)');
+      grad.addColorStop(1, 'rgba(10,22,45,0.88)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, H - 260, W, 260);
+    }
+    ctx.fillStyle = darkText ? '#0f2043' : '#ffffff';
+    ctx.font = 'bold 42px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('📍 ' + placeText, 64, H - 125);
+    ctx.font = '600 28px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = darkText ? '#475569' : 'rgba(255,255,255,0.85)';
+    var dateStr = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    ctx.fillText(dateStr + '  •  Mapping My Life', 64, H - 72);
+  }
+
+  function showResultFromImage(img) {
+    capturedPhoto = img;
+    videoWrap.style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('mml-capture-bar').style.display = 'none';
+    document.getElementById('mml-layout-bar').style.display = 'flex';
+    document.getElementById('mml-share-bar').style.display = 'flex';
+    renderPostcard();
+  }
+
+  fab.onclick = async function () {
+    modal.style.display = 'flex';
+    videoWrap.style.display = 'block';
+    canvas.style.display = 'none';
+    document.getElementById('mml-capture-bar').style.display = 'flex';
+    document.getElementById('mml-layout-bar').style.display = 'none';
+    document.getElementById('mml-share-bar').style.display = 'none';
+    mapSnapshot = await buildStaticMapSnapshot();
+    mapBgImg.src = mapSnapshot.src;
+    await startCamera();
+  };
+
+  document.getElementById('mml-cam-close').onclick = function () {
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    modal.style.display = 'none';
+  };
+
+  document.getElementById('mml-cam-flip').onclick = function () {
+    facingMode = (facingMode === 'user') ? 'environment' : 'user';
+    startCamera();
+  };
+
+  document.getElementById('mml-shutter-btn').onclick = function () {
+    if (!stream || !video.videoWidth) {
+      fallbackInput.click();
+      return;
+    }
+    var snap = document.createElement('canvas');
+    snap.width = video.videoWidth; snap.height = video.videoHeight;
+    var sctx = snap.getContext('2d');
+    if (facingMode === 'user') {
+      sctx.translate(snap.width, 0);
+      sctx.scale(-1, 1);
+    }
+    sctx.drawImage(video, 0, 0);
+    var img = new Image();
+    img.onload = function () { showResultFromImage(img); };
+    img.src = snap.toDataURL('image/jpeg', 0.92);
+  };
+
+  document.getElementById('mml-upload-alt').onclick = function () { fallbackInput.click(); };
+  fallbackInput.onchange = function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var img = new Image();
+      img.onload = function () { showResultFromImage(img); };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  document.querySelectorAll('#mml-layout-bar .mml-pill').forEach(function (btn) {
+    btn.onclick = function () {
+      document.querySelectorAll('#mml-layout-bar .mml-pill').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentLayout = btn.getAttribute('data-layout');
+      renderPostcard();
+    };
+  });
+
+  document.getElementById('mml-retake-btn').onclick = function () {
+    videoWrap.style.display = 'block';
+    canvas.style.display = 'none';
+    document.getElementById('mml-capture-bar').style.display = 'flex';
+    document.getElementById('mml-layout-bar').style.display = 'none';
+    document.getElementById('mml-share-bar').style.display = 'none';
+  };
+
+  document.getElementById('mml-save-btn').onclick = function () {
+    canvas.toBlob(async function (blob) {
+      var file = new File([blob], 'mapping-my-life-postcard.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'Mapping My Life', text: '📍 ' + placeText });
+          return;
+        } catch (e) {}
+      }
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'mapping-my-life-postcard.png';
+      a.click();
+    }, 'image/png');
+  };
+})();
+</script>
 </body>
 </html>
+
 
